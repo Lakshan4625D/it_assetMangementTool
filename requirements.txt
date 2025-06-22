@@ -1,0 +1,11 @@
+#pip install -r requirements.txt
+fastapi
+uvicorn
+jinja2
+mysql-connector-python
+python-nmap
+pysnmp
+psutil
+requests
+paramiko
+pywinrm
