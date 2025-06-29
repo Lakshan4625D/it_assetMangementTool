@@ -59,3 +59,120 @@ CREATE TABLE IF NOT EXISTS `vulnerabilities` (
   KEY `device_id` (`device_id`),
   CONSTRAINT `fk_device` FOREIGN KEY (`device_id`) REFERENCES `devices` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=592 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Shared scan history table
+CREATE TABLE IF NOT EXISTS `cloud_scan_history` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `provider` ENUM('aws', 'azure', 'gcp') NOT NULL,
+  `scan_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- AWS EC2 Instances
+CREATE TABLE IF NOT EXISTS `aws_ec2` (
+  `id` VARCHAR(100) NOT NULL,
+  `type` VARCHAR(50),
+  `state` VARCHAR(50),
+  `launch_time` DATETIME,
+  `public_ip` VARCHAR(50),
+  `region` VARCHAR(50),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_aws_ec2_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- AWS S3 Buckets
+CREATE TABLE IF NOT EXISTS `aws_s3` (
+  `name` VARCHAR(100) NOT NULL,
+  `creation_date` DATETIME,
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_aws_s3_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- AWS ECS Clusters
+CREATE TABLE IF NOT EXISTS `aws_ecs` (
+  `name` VARCHAR(100) NOT NULL,
+  `status` VARCHAR(50),
+  `active_services` INT,
+  `running_tasks` INT,
+  `region` VARCHAR(50),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_aws_ecs_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Azure Virtual Machines
+CREATE TABLE IF NOT EXISTS `azure_vms` (
+  `name` VARCHAR(100) NOT NULL,
+  `location` VARCHAR(100),
+  `vm_type` VARCHAR(100),
+  `vm_size` VARCHAR(100),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_azure_vms_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Azure Storage Accounts
+CREATE TABLE IF NOT EXISTS `azure_storage_accounts` (
+  `name` VARCHAR(100) NOT NULL,
+  `location` VARCHAR(100),
+  `kind` VARCHAR(50),
+  `sku` VARCHAR(50),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_azure_storage_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Azure AKS Clusters
+CREATE TABLE IF NOT EXISTS `azure_aks_clusters` (
+  `name` VARCHAR(100) NOT NULL,
+  `location` VARCHAR(100),
+  `version` VARCHAR(50),
+  `dns_prefix` VARCHAR(100),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_azure_aks_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- GCP Virtual Machines
+CREATE TABLE IF NOT EXISTS `gcp_vms` (
+  `name` VARCHAR(100) NOT NULL,
+  `zone` VARCHAR(50),
+  `status` VARCHAR(50),
+  `machine_type` VARCHAR(100),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_gcp_vms_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- GCP Storage Buckets
+CREATE TABLE IF NOT EXISTS `gcp_buckets` (
+  `name` VARCHAR(100) NOT NULL,
+  `location` VARCHAR(50),
+  `storage_class` VARCHAR(50),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_gcp_buckets_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- GCP Kubernetes Clusters (GKE)
+CREATE TABLE IF NOT EXISTS `gcp_gke_clusters` (
+  `name` VARCHAR(100) NOT NULL,
+  `location` VARCHAR(50),
+  `status` VARCHAR(50),
+  `endpoint` VARCHAR(100),
+  `scan_id` INT DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `scan_id` (`scan_id`),
+  CONSTRAINT `fk_gcp_gke_scan` FOREIGN KEY (`scan_id`) REFERENCES `cloud_scan_history` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+

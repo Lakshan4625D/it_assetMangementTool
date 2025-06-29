@@ -13,19 +13,25 @@ def run_clamav_remote(path, os_type, ip, username, password):
     try:
         if os_type.lower() == "windows":
             session = winrm.Session(f'http://{ip}:5985/wsman', auth=(username, password), transport='ntlm')
-            cmd = f'clamscan --infected --no-summary -r "{path}"'
-            result = session.run_cmd(cmd)
-            return result.std_out.decode()
+            ps_script = f'& "C:\\ClamAV\\clamscan.exe" --infected --no-summary -r "{path}"'
+            print(f"📤 PowerShell command: {ps_script}")
+            result = session.run_ps(ps_script)
+            output = result.std_out.decode()
+            errors = result.std_err.decode()
+            if errors:
+                print("❌ STDERR:\n", errors)
+            return output
         else:
+            # Linux/macOS case
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             client.connect(ip, username=username, password=password, timeout=10)
-            cmd = fr'"C:\ClamAV\clamscan.exe" --infected --no-summary -r "{path}"'
+            cmd = f'/usr/bin/clamscan --infected --no-summary -r "{path}"'
             stdin, stdout, stderr = client.exec_command(cmd)
-            errors = stderr.read().decode()
             output = stdout.read().decode()
-            print("📤 STDOUT:\n", output)
-            print("❌ STDERR:\n", errors)
+            errors = stderr.read().decode()
+            if errors:
+                print("❌ STDERR (Linux):", errors)
             client.close()
             return output
     except Exception as e:
@@ -76,3 +82,23 @@ def scan_all_app_paths(system_id, apps, os_type, ip, username, password):
         futures = [executor.submit(scan_and_store, app) for app in apps]
         for f in as_completed(futures):
             _ = f.result()
+
+if __name__ == "__main__":
+    ip = '100.127.47.158'
+    username = 'laptop-i3rtcp33\mobitel'
+    password = 'shanvitha2005'
+    os_type = 'windows'
+    path_to_scan = r"C:\Program Files (x86)\SysAssetScanner"
+
+    output = run_clamav_remote(path_to_scan, os_type, ip, username, password)
+    print("=== Scan Output ===")
+    print(output)
+
+    detections = parse_clamav_output(output)
+    if detections:
+        print("⚠️ Malware found:")
+        for path, sig in detections:
+            print(f"{path} → {sig}")
+    else:
+        print("✅ No malware found.")
+

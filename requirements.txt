@@ -9,3 +9,13 @@ psutil
 requests
 paramiko
 pywinrm
+python-multipart
+boto3
+azure-identity
+azure-mgmt-compute
+azure-mgmt-storage
+azure-mgmt-containerservice
+google-cloud-compute
+google-cloud-storage
+google-cloud-container
+google-auth

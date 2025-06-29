@@ -104,6 +104,8 @@ def render_template(title, body):
       <a href="/devices">Devices in network</a>
       <a href='/vulnerabilities'>Vulnerabilities</a>
       <a href="/remote-form">Softwares installed</a>
+      <a href="/cloud-assets">Cloud Assets</a>
+      <a href="/cloud-history">Cloud History</a>
     </nav>
     <main>
       {body}
@@ -238,6 +240,79 @@ def remote_scan(
 
     return render_template("Software Info", f"<h2>System: {ip}</h2><pre>{sys_info}</pre>{app_table}")
 
+
+@app.get("/cloud-history", response_class=HTMLResponse)
+def cloud_history():
+    conn = mysql.connector.connect(**DB_CONFIG)
+    cur = conn.cursor(dictionary=True)
+
+    cur.execute("SELECT * FROM cloud_scan_history ORDER BY scan_time DESC")
+    scans = cur.fetchall()
+    conn.close()
+
+    html = "<h2>Cloud Scan History</h2>"
+    if not scans:
+        html += "<p>No cloud scans have been performed yet.</p>"
+    else:
+        html += "<table><tr><th>Scan ID</th><th>Provider</th><th>Scan Time</th><th>Action</th></tr>"
+        for scan in scans:
+            html += f"""
+            <tr>
+                <td>{scan['id']}</td>
+                <td>{scan['provider'].upper()}</td>
+                <td>{scan['scan_time']}</td>
+                <td><a class="button" href="/cloud-history/{scan['provider']}/{scan['id']}">View Details</a></td>
+            </tr>"""
+        html += "</table>"
+
+    return render_template("Cloud Scan History", html)
+
+@app.get("/cloud-history/{provider}/{scan_id}", response_class=HTMLResponse)
+def cloud_scan_details(provider: str, scan_id: int):
+    conn = mysql.connector.connect(**DB_CONFIG)
+    cur = conn.cursor(dictionary=True)
+    title = f"{provider.upper()} Scan #{scan_id} Details"
+    html = f"<h2>{title}</h2>"
+
+    tables = {
+        "aws": {
+            "EC2 Instances": "aws_ec2",
+            "S3 Buckets": "aws_s3",
+            "ECS Clusters": "aws_ecs"
+        },
+        "azure": {
+            "Virtual Machines": "azure_vms",
+            "Storage Accounts": "azure_storage_accounts",
+            "AKS Clusters": "azure_aks_clusters"
+        },
+        "gcp": {
+            "Virtual Machines": "gcp_vms",
+            "Storage Buckets": "gcp_buckets",
+            "GKE Clusters": "gcp_gke_clusters"
+        }
+    }
+
+    if provider not in tables:
+        return render_template("Invalid Provider", "<p>Unsupported cloud provider.</p>")
+
+    for section, table in tables[provider].items():
+        cur.execute(f"SELECT * FROM {table} WHERE scan_id = %s", (scan_id,))
+        rows = cur.fetchall()
+        html += f"<h3>{section}</h3>"
+        if not rows:
+            html += "<p>No data available.</p>"
+            continue
+        html += "<table><tr>"
+        for key in rows[0].keys():
+            html += f"<th>{key}</th>"
+        html += "</tr>"
+        for row in rows:
+            html += "<tr>" + "".join(f"<td>{str(val)}</td>" for val in row.values()) + "</tr>"
+        html += "</table><br>"
+
+    conn.close()
+    return render_template(title, html)
+
 @app.get("/scan", response_class=HTMLResponse)
 async def scan(vuln: str = None):
     query = "?vuln=yes" if vuln == "yes" else ""
@@ -312,6 +387,131 @@ async def start_scan(vuln: str = None):
         batch_scan_ips(ips)
 
     return RedirectResponse(url="/", status_code=303)
+
+from aws_scan import get_aws_resources
+from azure_scan import get_azure_resources
+from gcp_scan import get_gcp_resources
+
+@app.get("/cloud-assets", response_class=HTMLResponse)
+def cloud_assets_form():
+    return render_template("Cloud Assets", """<style>
+input[type="text"],
+input[type="password"],
+select {
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  box-sizing: border-box;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  height: 34px;
+}
+</style>
+
+<h2>Cloud Assets Discovery</h2>
+<form method="post" action="/cloud-assets" style="max-width: 400px;">
+  <label><strong>Select Cloud Provider:</strong></label><br>
+  <select name="provider" required>
+    <option value="aws">AWS</option>
+    <option value="azure">Azure</option>
+    <option value="gcp">GCP</option>
+  </select>
+
+  <div id="aws-fields">
+    <label>AWS Access Key:</label><br>
+    <input type="text" name="aws_access_key" /><br>
+    <label>AWS Secret Key:</label><br>
+    <input type="text" name="aws_secret_key" /><br>
+    <label>Region:</label><br>
+    <input type="text" name="aws_region" value="us-east-1" /><br>
+  </div>
+
+  <div id="azure-fields" style="display:none;">
+    <label>Tenant ID:</label><br>
+    <input type="text" name="azure_tenant_id" /><br>
+    <label>Client ID:</label><br>
+    <input type="text" name="azure_client_id" /><br>
+    <label>Client Secret:</label><br>
+    <input type="text" name="azure_client_secret" /><br>
+    <label>Subscription ID:</label><br>
+    <input type="text" name="azure_subscription_id" /><br>
+  </div>
+
+  <div id="gcp-fields" style="display:none;">
+    <label>GCP Project ID:</label><br>
+    <input type="text" name="gcp_project_id" /><br>
+    <label>Credentials JSON Path:</label><br>
+    <input type="text" name="gcp_credentials_path" /><br>
+  </div>
+
+  <input class="button" type="submit" value="Discover" style="padding:8px 16px;">
+</form>
+
+<script>
+const providerSelect = document.querySelector('select[name="provider"]');
+const awsFields = document.getElementById("aws-fields");
+const azureFields = document.getElementById("azure-fields");
+const gcpFields = document.getElementById("gcp-fields");
+
+function updateVisibility() {
+  const val = providerSelect.value;
+  awsFields.style.display = val === "aws" ? "block" : "none";
+  azureFields.style.display = val === "azure" ? "block" : "none";
+  gcpFields.style.display = val === "gcp" ? "block" : "none";
+}
+
+providerSelect.addEventListener("change", updateVisibility);
+window.addEventListener("DOMContentLoaded", updateVisibility);
+</script>
+
+""")
+
+@app.post("/cloud-assets", response_class=HTMLResponse)
+async def cloud_assets(
+    request: Request,
+    provider: str = Form(...),
+    aws_access_key: str = Form(None),
+    aws_secret_key: str = Form(None),
+    aws_region: str = Form(None),
+    azure_tenant_id: str = Form(None),
+    azure_client_id: str = Form(None),
+    azure_client_secret: str = Form(None),
+    azure_subscription_id: str = Form(None),
+    gcp_project_id: str = Form(None),
+    gcp_credentials_path: str = Form(None)
+):
+    try:
+        if provider == "aws":
+            result = get_aws_resources(aws_access_key, aws_secret_key, aws_region)
+        elif provider == "azure":
+            result = get_azure_resources(azure_tenant_id, azure_client_id, azure_client_secret, azure_subscription_id)
+        elif provider == "gcp":
+            result = get_gcp_resources(gcp_project_id, gcp_credentials_path)
+        else:
+            return render_template("Cloud Assets", "<p>Invalid provider selected.</p>")
+
+        if result.get("error"):
+            return render_template("Cloud Assets", f"<p>Error: {result['error']}</p>")
+
+        # Render result
+        html = "<h2>Discovered Assets</h2>"
+        for key, items in result.items():
+            if key == "error":
+                continue
+            html += f"<h3>{key.replace('_', ' ').title()}</h3>"
+            if not items:
+                html += "<p>No assets found.</p>"
+                continue
+            html += "<table><tr>" + "".join(f"<th>{k}</th>" for k in items[0].keys()) + "</tr>"
+            for item in items:
+                html += "<tr>" + "".join(f"<td>{v}</td>" for v in item.values()) + "</tr>"
+            html += "</table><br>"
+
+        return render_template("Cloud Assets", html)
+
+    except Exception as e:
+        return render_template("Cloud Assets", f"<p>Error: {str(e)}</p>")
 
 if __name__ == "__main__":
     if platform.system() == "Windows":
