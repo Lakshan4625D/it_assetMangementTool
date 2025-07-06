@@ -10,12 +10,12 @@ DB_CONFIG = {
     'database': 'network_scanner'
 }
 
-
 def get_aws_resources(access_key, secret_key, region='us-east-1'):
     result = {
         "ec2_instances": [],
         "s3_buckets": [],
         "ecs_clusters": [],
+        "iam_users": [],
         "error": None
     }
 
@@ -27,6 +27,8 @@ def get_aws_resources(access_key, secret_key, region='us-east-1'):
                           aws_secret_access_key=secret_key)
         ecs = boto3.client('ecs', aws_access_key_id=access_key,
                            aws_secret_access_key=secret_key, region_name=region)
+        iam = boto3.client('iam', aws_access_key_id=access_key,
+                           aws_secret_access_key=secret_key)
 
         # Connect to DB
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -71,6 +73,16 @@ def get_aws_resources(access_key, secret_key, region='us-east-1'):
                 running_tasks INT,
                 region VARCHAR(50),
                 scan_id INT,
+                FOREIGN KEY (scan_id) REFERENCES cloud_scan_history(id) ON DELETE SET NULL
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS aws_iam_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                scan_id INT,
+                username VARCHAR(255),
+                created DATETIME,
                 FOREIGN KEY (scan_id) REFERENCES cloud_scan_history(id) ON DELETE SET NULL
             )
         ''')
@@ -143,6 +155,22 @@ def get_aws_resources(access_key, secret_key, region='us-east-1'):
                         status=VALUES(status), active_services=VALUES(active_services),
                         running_tasks=VALUES(running_tasks), region=VALUES(region), scan_id=VALUES(scan_id)
                 ''', (cluster_name, status, active_services, running_tasks, region, scan_id))
+
+        # IAM Users
+        users = iam.list_users().get('Users', [])
+        for user in users:
+            username = user.get("UserName")
+            created = user.get("CreateDate")
+
+            result['iam_users'].append({
+                "username": username,
+                "created": str(created)
+            })
+
+            cursor.execute('''
+                INSERT INTO aws_iam_users (scan_id, username, created)
+                VALUES (%s, %s, %s)
+            ''', (scan_id, username, created))
 
         conn.commit()
 

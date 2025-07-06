@@ -19,3 +19,4 @@ google-cloud-compute
 google-cloud-storage
 google-cloud-container
 google-auth
+google-api-python-client

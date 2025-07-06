@@ -310,6 +310,33 @@ def cloud_scan_details(provider: str, scan_id: int):
             html += "<tr>" + "".join(f"<td>{str(val)}</td>" for val in row.values()) + "</tr>"
         html += "</table><br>"
 
+    # ✅ Always show IAM Users (even if empty)
+    if provider == "aws":
+        cur.execute("SELECT username, created FROM aws_iam_users WHERE scan_id = %s", (scan_id,))
+        section_title = "AWS IAM Users"
+    elif provider == "azure":
+        cur.execute("SELECT username, created FROM azure_iam_users WHERE scan_id = %s", (scan_id,))
+        section_title = "Azure IAM Users"
+    elif provider == "gcp":
+        cur.execute("SELECT username, role FROM gcp_iam_users WHERE scan_id = %s", (scan_id,))
+        section_title = "GCP IAM Users"
+    else:
+        cur.execute("SELECT NULL WHERE FALSE")
+        section_title = "IAM Users"
+
+    iam_rows = cur.fetchall()
+    html += f"<h3>{section_title}</h3>"
+    if not iam_rows:
+        html += "<p>No IAM user data available.</p>"
+    else:
+        html += "<table><tr>"
+        for key in iam_rows[0].keys():
+            html += f"<th>{key}</th>"
+        html += "</tr>"
+        for row in iam_rows:
+            html += "<tr>" + "".join(f"<td>{str(v)}</td>" for v in row.values()) + "</tr>"
+        html += "</table><br>"
+
     conn.close()
     return render_template(title, html)
 
@@ -419,31 +446,33 @@ select {
   </select>
 
   <div id="aws-fields">
-    <label>AWS Access Key:</label><br>
-    <input type="text" name="aws_access_key" /><br>
-    <label>AWS Secret Key:</label><br>
-    <input type="text" name="aws_secret_key" /><br>
-    <label>Region:</label><br>
-    <input type="text" name="aws_region" value="us-east-1" /><br>
-  </div>
+  <label>AWS Access Key:</label><br>
+  <input type="text" name="aws_access_key" /><br>
+  <label>AWS Secret Key:</label><br>
+  <input type="text" name="aws_secret_key" /><br>
+  <label>Region:</label><br>
+  <input type="text" name="aws_region" value="us-east-1" /><br><br>
+</div>
 
   <div id="azure-fields" style="display:none;">
-    <label>Tenant ID:</label><br>
-    <input type="text" name="azure_tenant_id" /><br>
-    <label>Client ID:</label><br>
-    <input type="text" name="azure_client_id" /><br>
-    <label>Client Secret:</label><br>
-    <input type="text" name="azure_client_secret" /><br>
-    <label>Subscription ID:</label><br>
-    <input type="text" name="azure_subscription_id" /><br>
-  </div>
+  <label>Tenant ID:</label><br>
+  <input type="text" name="azure_tenant_id" /><br>
+  <label>Client ID:</label><br>
+  <input type="text" name="azure_client_id" /><br>
+  <label>Client Secret:</label><br>
+  <input type="text" name="azure_client_secret" /><br>
+  <label>Subscription ID:</label><br>
+  <input type="text" name="azure_subscription_id" /><br><br>
+</div>
+
 
   <div id="gcp-fields" style="display:none;">
-    <label>GCP Project ID:</label><br>
-    <input type="text" name="gcp_project_id" /><br>
-    <label>Credentials JSON Path:</label><br>
-    <input type="text" name="gcp_credentials_path" /><br>
-  </div>
+  <label>GCP Project ID:</label><br>
+  <input type="text" name="gcp_project_id" /><br>
+  <label>Credentials JSON Path:</label><br>
+  <input type="text" name="gcp_credentials_path" /><br><br>
+</div>
+
 
   <input class="button" type="submit" value="Discover" style="padding:8px 16px;">
 </form>
@@ -479,23 +508,30 @@ async def cloud_assets(
     azure_client_secret: str = Form(None),
     azure_subscription_id: str = Form(None),
     gcp_project_id: str = Form(None),
-    gcp_credentials_path: str = Form(None)
+    gcp_credentials_path: str = Form(None),
 ):
     try:
+
         if provider == "aws":
             result = get_aws_resources(aws_access_key, aws_secret_key, aws_region)
+            
+
         elif provider == "azure":
             result = get_azure_resources(azure_tenant_id, azure_client_id, azure_client_secret, azure_subscription_id)
+            
+
         elif provider == "gcp":
             result = get_gcp_resources(gcp_project_id, gcp_credentials_path)
+            
+
         else:
             return render_template("Cloud Assets", "<p>Invalid provider selected.</p>")
 
         if result.get("error"):
             return render_template("Cloud Assets", f"<p>Error: {result['error']}</p>")
 
-        # Render result
-        html = "<h2>Discovered Assets</h2>"
+        html = "<h2>Discovered Cloud Assets</h2>"
+
         for key, items in result.items():
             if key == "error":
                 continue

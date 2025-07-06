@@ -4,6 +4,8 @@ from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.containerservice import ContainerServiceClient
 from azure.core.exceptions import AzureError
 import mysql.connector
+import requests
+from datetime import datetime
 
 DB_CONFIG = {
     'host': 'localhost',
@@ -18,6 +20,7 @@ def get_azure_resources(tenant_id, client_id, client_secret, subscription_id):
         "vms": [],
         "storage_accounts": [],
         "aks_clusters": [],
+        "iam_users": [],
         "error": None
     }
 
@@ -34,6 +37,15 @@ def get_azure_resources(tenant_id, client_id, client_secret, subscription_id):
         # DB setup
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
+
+        # Create tables if not exists
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cloud_scan_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                provider ENUM('aws','azure','gcp') NOT NULL,
+                scan_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS azure_vms (
@@ -68,7 +80,17 @@ def get_azure_resources(tenant_id, client_id, client_secret, subscription_id):
             )
         ''')
 
-        # Insert scan history
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS azure_iam_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                scan_id INT,
+                username VARCHAR(255),
+                created DATETIME,
+                FOREIGN KEY (scan_id) REFERENCES cloud_scan_history(id) ON DELETE SET NULL
+            )
+        ''')
+
+        # Insert scan record
         cursor.execute("INSERT INTO cloud_scan_history (provider) VALUES ('azure')")
         scan_id = cursor.lastrowid
 
@@ -96,7 +118,7 @@ def get_azure_resources(tenant_id, client_id, client_secret, subscription_id):
                     scan_id=VALUES(scan_id)
             ''', (name, location, vm_type, vm_size, scan_id))
 
-        # Storage
+        # Storage Accounts
         for sa in storage_client.storage_accounts.list():
             result["storage_accounts"].append({
                 "name": sa.name,
@@ -134,10 +156,51 @@ def get_azure_resources(tenant_id, client_id, client_secret, subscription_id):
                     scan_id=VALUES(scan_id)
             ''', (cluster.name, cluster.location, cluster.kubernetes_version, cluster.dns_prefix, scan_id))
 
+        # IAM Users from Graph API
+        token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+        graph_url = "https://graph.microsoft.com/v1.0/users?$select=userPrincipalName,createdDateTime"
+
+        data = {
+            'client_id': client_id,
+            'scope': 'https://graph.microsoft.com/.default',
+            'client_secret': client_secret,
+            'grant_type': 'client_credentials'
+        }
+
+        token_res = requests.post(token_url, data=data)
+        access_token = token_res.json().get('access_token')
+
+        if access_token:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            response = requests.get(graph_url, headers=headers)
+            users = response.json().get('value', [])
+
+            for user in users:
+                username = user.get("userPrincipalName", "N/A")
+                created_raw = user.get("createdDateTime", None)
+                if created_raw:
+                    created = datetime.fromisoformat(created_raw.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    created = None
+                result["iam_users"].append({
+                    "username": username,
+                    "created": created
+                })
+
+                cursor.execute('''
+                    INSERT INTO azure_iam_users (scan_id, username, created)
+                    VALUES (%s, %s, %s)
+                ''', (scan_id, username, created))
+        else:
+            result["error"] = "Failed to get Azure access token"
+
         conn.commit()
 
     except AzureError as e:
-        result['error'] = str(e)
+        result["error"] = str(e)
+
+    except Exception as e:
+        result["error"] = str(e)
 
     finally:
         try:
